@@ -28,5 +28,6 @@ CREATE TABLE IF NOT EXISTS `broadcast_attempts` (
     FOREIGN KEY (`broadcast_id`) REFERENCES `broadcasts`(`id`) ON DELETE CASCADE,
     FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
     INDEX (`broadcast_id`),
-    INDEX (`user_id`)
+    INDEX (`user_id`),
+    UNIQUE KEY `broadcast_user` (`broadcast_id`, `user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

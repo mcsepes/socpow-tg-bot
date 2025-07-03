@@ -27,16 +27,19 @@ function getDb(): \PDO
 /**
  * Отправка сообщения через Telegram Bot API
  */
-function sendMessage(int $chatId, string $text): bool
+function sendMessage(int $chatId, string $text, ?string $parseMode = null): array
 {
     $token = $GLOBALS['config']['BOT_TOKEN'];
     $url   = "https://api.telegram.org/bot{$token}/sendMessage";
 
-    $payload = json_encode([
-        'chat_id'    => $chatId,
-        'text'       => $text,
-        'parse_mode' => 'HTML',
-    ]);
+    $payload = [
+        'chat_id' => $chatId,
+        'text'    => $text,
+    ];
+    if ($parseMode !== null) {
+        $payload['parse_mode'] = $parseMode;
+    }
+    $payload = json_encode($payload);
 
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_POST,       true);
@@ -47,12 +50,18 @@ function sendMessage(int $chatId, string $text): bool
     $err  = curl_error($ch);
     curl_close($ch);
 
-    if ($resp === false || $err !== '') {
-        return false;
+    if ($resp === false) {
+        return ['ok' => false, 'error_code' => 0, 'description' => $err];
     }
 
     $data = json_decode($resp, true);
-    return is_array($data) && ($data['ok'] ?? false);
+    if (!is_array($data)) {
+        return ['ok' => false, 'error_code' => 0, 'description' => 'Invalid response'];
+    }
+    $data['description'] = $data['description'] ?? null;
+    $data['error_code']  = $data['error_code'] ?? 0;
+    $data['parameters']  = $data['parameters'] ?? [];
+    return $data;
 }
 
 /**

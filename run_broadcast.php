@@ -40,44 +40,69 @@ function processBroadcast(int $broadcastId, int $adminId, string $text): void
     $db = getDb();
     $config = $GLOBALS['config'];
 
-    // Загружаем всех подписчиков
-    $users = $db->query("SELECT id, chat_id FROM users")->fetchAll();
-
     // Выбираем rate-limit
-    $limit = $config['RATE_LIMIT']['default'];
-    $batchSize = $limit['batch_size'];
-    $delayMs   = $limit['delay_ms'];
+    $limit      = $config['RATE_LIMIT']['default'];
+    $batchSize  = $limit['batch_size'];
+    $delayMs    = $limit['delay_ms'];
+    $msgDelayMs = $limit['msg_delay_ms'] ?? 40;
 
-    $total = count($users);
-    $batchNum = 0;
-    $sentAll = 0;
+    $total     = (int)$db->query('SELECT COUNT(*) FROM users')->fetchColumn();
+    $batchNum  = 0;
+    $sentAll   = 0;
     $failedAll = 0;
 
-    foreach (array_chunk($users, $batchSize) as $chunk) {
+    while (true) {
+        $stmt = $db->prepare(
+            "SELECT u.id, u.chat_id
+             FROM users u
+             LEFT JOIN broadcast_attempts ba ON ba.user_id = u.id AND ba.broadcast_id = :bid
+             WHERE ba.user_id IS NULL
+             ORDER BY u.id
+             LIMIT :lim"
+        );
+        $stmt->bindValue(':bid', $broadcastId, PDO::PARAM_INT);
+        $stmt->bindValue(':lim', $batchSize, PDO::PARAM_INT);
+        $stmt->execute();
+        $chunk = $stmt->fetchAll();
+        if (!$chunk) {
+            break;
+        }
         $batchNum++;
         $sent = $failed = 0;
 
         foreach ($chunk as $u) {
-            $attempts = 0;
-            $success = false;
+            $attempts  = 0;
+            $success   = false;
             $lastError = '';
 
             while ($attempts < 3 && !$success) {
                 $attempts++;
-                if (sendMessage((int)$u['chat_id'], $text)) {
+                $res = sendMessage((int)$u['chat_id'], $text);
+                if ($res['ok']) {
                     $success = true;
                 } else {
-                    $lastError = "Attempt $attempts failed";
-                    usleep(500_000 * $attempts); // экспоненциальный бэкофф
+                    $lastError = $res['description'] ?? 'Unknown error';
+                    if (($res['error_code'] ?? 0) === 429) {
+                        $retry = (int)($res['parameters']['retry_after'] ?? 1);
+                        sleep($retry);
+                    } else {
+                        usleep(500_000 * $attempts); // бэкофф
+                    }
                 }
+                usleep($msgDelayMs * 1000);
             }
 
             // Сохраняем попытку
-            $db->prepare("
-                INSERT INTO broadcast_attempts
-                (broadcast_id, user_id, attempts, status, last_error)
-                VALUES (:bid, :uid, :att, :st, :err)
-            ")->execute([
+            $db->prepare(
+                "INSERT INTO broadcast_attempts
+                 (broadcast_id, user_id, attempts, status, last_error)
+                 VALUES (:bid, :uid, :att, :st, :err)
+                 ON DUPLICATE KEY UPDATE
+                    attempts   = VALUES(attempts),
+                    status     = VALUES(status),
+                    last_error = VALUES(last_error),
+                    updated_at = NOW()"
+            )->execute([
                 'bid' => $broadcastId,
                 'uid' => $u['id'],
                 'att' => $attempts,

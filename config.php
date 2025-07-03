@@ -25,8 +25,16 @@ return [
 
     // Rate-limit для рассылок
     'RATE_LIMIT' => [
-        'default'    => ['batch_size' => 30,  'delay_ms' => 1000],
-        'paid'       => ['batch_size' => 1000,'delay_ms' => 1000],
+        'default' => [
+            'batch_size'      => 30,   // размер батча
+            'delay_ms'        => 1000, // задержка между батчами
+            'msg_delay_ms'    => 40,   // задержка между сообщениями
+        ],
+        'paid'    => [
+            'batch_size'      => 1000,
+            'delay_ms'        => 1000,
+            'msg_delay_ms'    => 40,
+        ],
     ],
 
     // URL вашего webhook (например, https://yourdomain.com/bot.php)

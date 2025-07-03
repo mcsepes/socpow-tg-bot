@@ -31,8 +31,15 @@ if ($text === '/start') {
 
 // Если админ начал /broadcast
 if ($text === '/broadcast' && isAdmin($chatId)) {
-    $stmt = $db->prepare('INSERT INTO broadcasts (admin_id) VALUES (:admin_id)');
+    $stmt = $db->prepare(
+        'SELECT id FROM broadcasts WHERE admin_id = :admin_id AND status = "pending_text" ORDER BY id DESC LIMIT 1'
+    );
     $stmt->execute(['admin_id' => $chatId]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        $ins = $db->prepare('INSERT INTO broadcasts (admin_id) VALUES (:admin_id)');
+        $ins->execute(['admin_id' => $chatId]);
+    }
     sendMessage($chatId, "Введите текст рассылки:");
     exit;
 }
