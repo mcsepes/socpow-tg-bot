@@ -5,6 +5,14 @@ require __DIR__ . '/common.php';
 $db = getDb();
 $config = $GLOBALS['config'];
 
+// Возвращаем "зависшие" рассылки в статус 'sending'
+$db->exec(
+    "UPDATE broadcasts
+        SET status = 'sending'
+      WHERE status = 'processing'
+        AND updated_at < DATE_SUB(NOW(), INTERVAL 10 MINUTE)"
+);
+
 // Получаем все рассылки в статусе 'sending'
 $stmt = $db->query("SELECT id, admin_id, text FROM broadcasts WHERE status = 'sending'");
 $broadcasts = $stmt->fetchAll();
@@ -17,7 +25,14 @@ foreach ($broadcasts as $b) {
         continue; // уже кто-то взял или изменилось
     }
 
-    processBroadcast((int)$b['id'], (int)$b['admin_id'], $b['text']);
+    try {
+        processBroadcast((int)$b['id'], (int)$b['admin_id'], $b['text']);
+    } catch (\Throwable $e) {
+        // Возвращаем статус для повторной попытки
+        $db->prepare("UPDATE broadcasts SET status = 'sending' WHERE id = :id")
+            ->execute(['id' => $b['id']]);
+        sendMessage((int)$b['admin_id'], 'Ошибка при обработке рассылки #' . $b['id'] . ': ' . $e->getMessage());
+    }
 }
 
 function processBroadcast(int $broadcastId, int $adminId, string $text): void

@@ -15,8 +15,9 @@ if (!is_array($update) || !isset($update['message'])) {
     exit;
 }
 
-$chatId = (int)$update['message']['chat']['id'];
-$text   = trim($update['message']['text'] ?? '');
+$message = $update['message'];
+$chatId  = (int)$message['chat']['id'];
+$text    = isset($message['text']) ? trim($message['text']) : null;
 
 $db = getDb();
 
@@ -46,6 +47,10 @@ if (isAdmin($chatId)) {
     $stmt->execute(['admin_id' => $chatId]);
     $row = $stmt->fetch();
     if ($row) {
+        if ($text === null || $text === '') {
+            sendMessage($chatId, 'Пожалуйста, отправьте текстовое сообщение для рассылки.');
+            exit;
+        }
         $broadcastId = (int)$row['id'];
         $upd = $db->prepare("
             UPDATE broadcasts
