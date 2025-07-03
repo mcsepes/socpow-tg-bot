@@ -28,7 +28,7 @@
    git clone https://your.repo/telegram-bot.git
    cd telegram-bot
    ```
-2. Скопируйте `config.php` и заполните:
+2. Скопируйте `example.config.php` в `config.php` и заполните:
 
     * `BOT_TOKEN` — токен бота от @BotFather.
     * `WEBHOOK_URL` — публичный URL до `bot.php`.
