@@ -45,8 +45,6 @@ function processBroadcast(int $broadcastId, int $adminId, string $text): void
     $batchSize  = $limit['batch_size'];
     $delayMs    = $limit['delay_ms'];
     $msgDelayMs = $limit['msg_delay_ms'] ?? 40;
-
-    $total     = (int)$db->query('SELECT COUNT(*) FROM users')->fetchColumn();
     $batchNum  = 0;
     $sentAll   = 0;
     $failedAll = 0;
