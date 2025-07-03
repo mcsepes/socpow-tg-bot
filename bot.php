@@ -25,7 +25,7 @@ $db = getDb();
 if ($text === '/start') {
     $stmt = $db->prepare('INSERT IGNORE INTO users (chat_id) VALUES (:chat_id)');
     $stmt->execute(['chat_id' => $chatId]);
-    sendMessage($chatId, "Добро пожаловать! Вы успешно подписались на рассылку.");
+    sendMessage($chatId, $config['WELCOME_MESSAGE']);
     exit;
 }
 

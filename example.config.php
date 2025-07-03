@@ -44,4 +44,7 @@ return [
 
     // URL вашего webhook (например, https://yourdomain.com/bot.php)
     'WEBHOOK_URL' => 'https://yourdomain.com/path/to/bot.php',
+
+    // Приветственное сообщение для команды /start
+    'WELCOME_MESSAGE' => 'Добро пожаловать! Вы успешно подписались на рассылку.',
 ];
