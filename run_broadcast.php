@@ -80,8 +80,12 @@ function processBroadcast(int $broadcastId, int $adminId, string $text): void
         $sentAll   += $sent;
         $failedAll += $failed;
 
+        // Обновляем время изменения рассылки
+        $db->prepare(
+            'UPDATE broadcasts SET updated_at = NOW() WHERE id = :id'
+        )->execute(['id' => $broadcastId]);
+
         // Отчёт по батчу админу
-        $db->prepare("/* пустой */")->execute(); // placeholder
         sendMessage($adminId, "Batch #{$batchNum}: отправлено {$sent} из " . count($chunk) . ", {$failed} — не удалось.");
 
         // Пауза между батчами

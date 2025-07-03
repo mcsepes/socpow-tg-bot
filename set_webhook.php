@@ -3,9 +3,9 @@ declare(strict_types=1);
 require __DIR__ . '/common.php';
 $config = $GLOBALS['config'];
 
-$token = $config['BOT_TOKEN'];
-$url   = urlencode($config['WEBHOOK_URL']);
-$secret= $config['WEBHOOK_SECRET'];
+$token  = $config['BOT_TOKEN'];
+$url    = urlencode($config['WEBHOOK_URL']);
+$secret = urlencode($config['WEBHOOK_SECRET']);
 
 $apiUrl = "https://api.telegram.org/bot{$token}/setWebhook?url={$url}&secret_token={$secret}";
 

@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/common.php';
+$config = $GLOBALS['config'];
 
 $secretHeader = $_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? '';
 if ($secretHeader !== $config['WEBHOOK_SECRET']) {
@@ -10,7 +11,7 @@ if ($secretHeader !== $config['WEBHOOK_SECRET']) {
 
 $input = file_get_contents('php://input');
 $update = json_decode($input, true);
-if (!isset($update['message'])) {
+if (!is_array($update) || !isset($update['message'])) {
     exit;
 }
 

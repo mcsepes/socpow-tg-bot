@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 $config = require __DIR__ . '/config.php';
+$GLOBALS['config'] = $config;
 
 /**
  * Получаем PDO соединение
@@ -46,7 +47,12 @@ function sendMessage(int $chatId, string $text): bool
     $err  = curl_error($ch);
     curl_close($ch);
 
-    return ($resp !== false && $err === '');
+    if ($resp === false || $err !== '') {
+        return false;
+    }
+
+    $data = json_decode($resp, true);
+    return is_array($data) && ($data['ok'] ?? false);
 }
 
 /**
