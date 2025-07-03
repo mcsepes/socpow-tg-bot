@@ -37,6 +37,11 @@ return [
         ],
     ],
 
+    // Максимальное число сообщений, отправляемых за один запуск run_broadcast.php
+    // 0 означает отсутствие ограничения. Значение можно переопределить
+    // аргументом CLI.
+    'MAX_MESSAGES_PER_RUN' => 500,
+
     // URL вашего webhook (например, https://yourdomain.com/bot.php)
     'WEBHOOK_URL' => 'https://yourdomain.com/path/to/bot.php',
 ];

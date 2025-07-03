@@ -5,6 +5,19 @@ require __DIR__ . '/common.php';
 $db = getDb();
 $config = $GLOBALS['config'];
 
+// Лимит сообщений за один запуск
+$maxPerRun = null;
+if (isset($argv[1]) && is_numeric($argv[1])) {
+    $maxPerRun = (int)$argv[1];
+} elseif (isset($config['MAX_MESSAGES_PER_RUN'])) {
+    $maxPerRun = (int)$config['MAX_MESSAGES_PER_RUN'];
+}
+if ($maxPerRun !== null && $maxPerRun <= 0) {
+    $maxPerRun = null; // 0 и отрицательные — без ограничений
+}
+
+$remaining = $maxPerRun;
+
 // Возвращаем "зависшие" рассылки в статус 'sending'
 $db->exec(
     "UPDATE broadcasts
@@ -18,6 +31,9 @@ $stmt = $db->query("SELECT id, admin_id, text FROM broadcasts WHERE status = 'se
 $broadcasts = $stmt->fetchAll();
 
 foreach ($broadcasts as $b) {
+    if ($remaining !== null && $remaining <= 0) {
+        break;
+    }
     // Атомарно захватываем рассылку
     $u = $db->prepare("UPDATE broadcasts SET status = 'processing' WHERE id = :id AND status = 'sending'");
     $u->execute(['id' => $b['id']]);
@@ -26,16 +42,20 @@ foreach ($broadcasts as $b) {
     }
 
     try {
-        processBroadcast((int)$b['id'], (int)$b['admin_id'], $b['text']);
+        $limitHit = processBroadcast((int)$b['id'], (int)$b['admin_id'], $b['text'], $remaining);
     } catch (\Throwable $e) {
         // Возвращаем статус для повторной попытки
         $db->prepare("UPDATE broadcasts SET status = 'sending' WHERE id = :id")
             ->execute(['id' => $b['id']]);
         sendMessage((int)$b['admin_id'], 'Ошибка при обработке рассылки #' . $b['id'] . ': ' . $e->getMessage());
     }
+
+    if ($limitHit && $remaining !== null && $remaining <= 0) {
+        break;
+    }
 }
 
-function processBroadcast(int $broadcastId, int $adminId, string $text): void
+function processBroadcast(int $broadcastId, int $adminId, string $text, ?int &$remaining): bool
 {
     $db = getDb();
     $config = $GLOBALS['config'];
@@ -45,9 +65,11 @@ function processBroadcast(int $broadcastId, int $adminId, string $text): void
     $batchSize  = $limit['batch_size'];
     $delayMs    = $limit['delay_ms'];
     $msgDelayMs = $limit['msg_delay_ms'] ?? 40;
-    $batchNum  = 0;
-    $sentAll   = 0;
-    $failedAll = 0;
+    $batchNum    = 0;
+    $sentAll     = 0;
+    $failedAll   = 0;
+    $limitReached = false;
+    $completed    = false;
 
     while (true) {
         $stmt = $db->prepare(
@@ -63,6 +85,7 @@ function processBroadcast(int $broadcastId, int $adminId, string $text): void
         $stmt->execute();
         $chunk = $stmt->fetchAll();
         if (!$chunk) {
+            $completed = true;
             break;
         }
         $batchNum++;
@@ -110,8 +133,16 @@ function processBroadcast(int $broadcastId, int $adminId, string $text): void
 
             if ($success) {
                 $sent++;
+                if ($remaining !== null) {
+                    $remaining--;
+                }
             } else {
                 $failed++;
+            }
+
+            if ($remaining !== null && $remaining <= 0) {
+                $limitReached = true;
+                break;
             }
         }
 
@@ -126,12 +157,25 @@ function processBroadcast(int $broadcastId, int $adminId, string $text): void
         // Отчёт по батчу админу
         sendMessage($adminId, "Batch #{$batchNum}: отправлено {$sent} из " . count($chunk) . ", {$failed} — не удалось.");
 
+        if ($limitReached) {
+            break;
+        }
+
         // Пауза между батчами
         usleep($delayMs * 1000);
     }
 
-    // Финальный отчёт и завершение
-    sendMessage($adminId, "Рассылка #{$broadcastId} завершена. Всего отправлено: {$sentAll}, не удалось: {$failedAll}.");
-    $db->prepare("UPDATE broadcasts SET status = 'completed' WHERE id = :id")
+    if ($completed) {
+        // Финальный отчёт и завершение
+        sendMessage($adminId, "Рассылка #{$broadcastId} завершена. Всего отправлено: {$sentAll}, не удалось: {$failedAll}.");
+        $db->prepare("UPDATE broadcasts SET status = 'completed' WHERE id = :id")
+            ->execute(['id' => $broadcastId]);
+        return false;
+    }
+
+    // Прерываемся из-за лимита
+    $db->prepare("UPDATE broadcasts SET status = 'sending' WHERE id = :id")
         ->execute(['id' => $broadcastId]);
+    sendMessage($adminId, "Достигнут лимит отправки. Рассылка будет продолжена позже. Отправлено в этом запуске: {$sentAll}.");
+    return true;
 }

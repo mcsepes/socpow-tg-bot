@@ -34,6 +34,7 @@
     * `WEBHOOK_URL` — публичный URL до `bot.php`.
     * `WEBHOOK_SECRET` — любой секретный токен для проверки запросов.
     * Данные БД и список `ADMINS`.
+    * `MAX_MESSAGES_PER_RUN` — лимит сообщений за один запуск `run_broadcast.php` (0 — без ограничений).
 
 ---
 
@@ -79,8 +80,11 @@ php set_webhook.php
 Чтобы рассылки запускались автоматически, добавьте в crontab:
 
 ```
-* * * * * /usr/bin/php /path/to/telegram-bot/run_broadcast.php
+* * * * * /usr/bin/php /path/to/telegram-bot/run_broadcast.php 500
 ```
+
+Значение `500` здесь ограничивает число сообщений, отправляемых за один запуск.
+Если параметр опущен, используется `MAX_MESSAGES_PER_RUN` из `config.php`.
 
 Этот скрипт каждую минуту будет «захватывать» и обрабатывать новые рассылки.
 
