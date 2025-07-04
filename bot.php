@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/common.php';
+
 $config = $GLOBALS['config'];
 
 $secretHeader = $_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? '';
@@ -9,65 +10,83 @@ if ($secretHeader !== $config['WEBHOOK_SECRET']) {
     exit('Forbidden');
 }
 
-$input = file_get_contents('php://input');
+$input  = file_get_contents('php://input');
 $update = json_decode($input, true);
 if (!is_array($update) || !isset($update['message'])) {
     exit;
 }
 
-$message = $update['message'];
-$chatId  = (int)$message['chat']['id'];
-$text    = isset($message['text']) ? trim($message['text']) : null;
+processMessage($update['message']);
 
-$db = getDb();
+function processMessage(array $message): void
+{
+    $chatId = (int)$message['chat']['id'];
+    $text   = isset($message['text']) ? trim($message['text']) : null;
 
-// Обработка команды /start
-if ($text === '/start') {
-    $stmt = $db->prepare('INSERT IGNORE INTO users (chat_id) VALUES (:chat_id)');
-    $stmt->execute(['chat_id' => $chatId]);
-    sendMessage($chatId, $config['WELCOME_MESSAGE']);
-    exit;
+    if ($text === '/start') {
+        registerUser($chatId);
+        sendMessage($chatId, $GLOBALS['config']['WELCOME_MESSAGE']);
+        return;
+    }
+
+    if ($text === '/broadcast' && isAdmin($chatId)) {
+        ensurePendingBroadcast($chatId);
+        sendMessage($chatId, 'Введите текст рассылки:');
+        return;
+    }
+
+    if (isAdmin($chatId) && handleBroadcastText($chatId, $text)) {
+        return;
+    }
 }
 
-// Если админ начал /broadcast
-if ($text === '/broadcast' && isAdmin($chatId)) {
+function registerUser(int $chatId): void
+{
+    $db = getDb();
+    $stmt = $db->prepare('INSERT IGNORE INTO users (chat_id) VALUES (:chat_id)');
+    $stmt->execute(['chat_id' => $chatId]);
+}
+
+function ensurePendingBroadcast(int $adminId): void
+{
+    $db = getDb();
     $stmt = $db->prepare(
         'SELECT id FROM broadcasts WHERE admin_id = :admin_id AND status = "pending_text" ORDER BY id DESC LIMIT 1'
     );
-    $stmt->execute(['admin_id' => $chatId]);
+    $stmt->execute(['admin_id' => $adminId]);
     $row = $stmt->fetch();
     if (!$row) {
         $ins = $db->prepare('INSERT INTO broadcasts (admin_id) VALUES (:admin_id)');
-        $ins->execute(['admin_id' => $chatId]);
+        $ins->execute(['admin_id' => $adminId]);
     }
-    sendMessage($chatId, "Введите текст рассылки:");
-    exit;
 }
 
-// Если админ вводит текст рассылки для последнего pending_text
-if (isAdmin($chatId)) {
-    $stmt = $db->prepare("
-        SELECT id FROM broadcasts
-        WHERE admin_id = :admin_id AND status = 'pending_text'
-        ORDER BY id DESC LIMIT 1
-    ");
-    $stmt->execute(['admin_id' => $chatId]);
+function handleBroadcastText(int $adminId, ?string $text): bool
+{
+    $db = getDb();
+    $stmt = $db->prepare(
+        "SELECT id FROM broadcasts
+         WHERE admin_id = :admin_id AND status = 'pending_text'
+         ORDER BY id DESC LIMIT 1"
+    );
+    $stmt->execute(['admin_id' => $adminId]);
     $row = $stmt->fetch();
-    if ($row) {
-        if ($text === null || $text === '') {
-            sendMessage($chatId, 'Пожалуйста, отправьте текстовое сообщение для рассылки.');
-            exit;
-        }
-        $broadcastId = (int)$row['id'];
-        $upd = $db->prepare("
-            UPDATE broadcasts
-            SET text = :text, status = 'sending'
-            WHERE id = :id
-        ");
-        $upd->execute(['text' => $text, 'id' => $broadcastId]);
-        sendMessage($chatId, "Текст рассылки сохранён. Запуск через cron.");
-        exit;
+    if (!$row) {
+        return false;
     }
-}
 
-// Иначе — ничего не делаем
+    if ($text === null || $text === '') {
+        sendMessage($adminId, 'Пожалуйста, отправьте текстовое сообщение для рассылки.');
+        return true;
+    }
+
+    $broadcastId = (int)$row['id'];
+    $upd = $db->prepare(
+        "UPDATE broadcasts
+         SET text = :text, status = 'sending'
+         WHERE id = :id"
+    );
+    $upd->execute(['text' => $text, 'id' => $broadcastId]);
+    sendMessage($adminId, 'Текст рассылки сохранён. Запуск через cron.');
+    return true;
+}
