@@ -35,6 +35,12 @@ function processMessage(array $message): void
         return;
     }
 
+    if ($text === '/subscribers' && isAdmin($chatId)) {
+        $count = getSubscribersCount();
+        sendMessage($chatId, 'Количество подписчиков: ' . $count);
+        return;
+    }
+
     if (isAdmin($chatId) && handleBroadcastText($chatId, $text)) {
         return;
     }
@@ -101,4 +107,12 @@ function handleBroadcastText(int $adminId, ?string $text): bool
     $upd->execute(['text' => $text, 'id' => $broadcastId]);
     sendMessage($adminId, 'Текст рассылки сохранён. Запуск через cron.');
     return true;
+}
+
+
+function getSubscribersCount(): int
+{
+    $db = getDb();
+    $stmt = $db->query('SELECT COUNT(*) FROM users');
+    return (int)$stmt->fetchColumn();
 }
