@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS `broadcasts` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `admin_id` BIGINT NOT NULL,
     `text` TEXT NULL,
+    `max_recipients` INT UNSIGNED DEFAULT NULL,
     `status` ENUM('pending_text', 'sending', 'processing', 'completed') NOT NULL DEFAULT 'pending_text',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL

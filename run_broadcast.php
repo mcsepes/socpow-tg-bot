@@ -35,7 +35,7 @@ function runBroadcasts(?int $maxPerRun): void
             continue;
         }
         try {
-            $limitHit = processBroadcast((int)$b['id'], (int)$b['admin_id'], $b['text'], $remaining);
+            $limitHit = processBroadcast((int)$b['id'], (int)$b['admin_id'], $b['text'], $remaining, $b['max_recipients']);
         } catch (Throwable $e) {
             $db->prepare("UPDATE broadcasts SET status = 'sending', updated_at = NOW() WHERE id = :id")
                 ->execute(['id' => $b['id']]);
@@ -60,7 +60,7 @@ function restoreStalledBroadcasts(PDO $db): void
 
 function fetchSendingBroadcasts(PDO $db): array
 {
-    $stmt = $db->query("SELECT id, admin_id, text FROM broadcasts WHERE status = 'sending'");
+    $stmt = $db->query("SELECT id, admin_id, text, max_recipients FROM broadcasts WHERE status = 'sending'");
     return $stmt->fetchAll();
 }
 
@@ -71,7 +71,13 @@ function captureBroadcast(PDO $db, int $id): bool
     return $u->rowCount() > 0;
 }
 
-function processBroadcast(int $broadcastId, int $adminId, string $text, ?int &$remaining): bool
+function processBroadcast(
+    int $broadcastId,
+    int $adminId,
+    string $text,
+    ?int &$remaining,
+    ?int $maxRecipients
+): bool
 {
     $db = getDb();
     $config     = $GLOBALS['config'];
@@ -86,8 +92,28 @@ function processBroadcast(int $broadcastId, int $adminId, string $text, ?int &$r
     $limitReached = false;
     $completed    = false;
 
+    $attempted = getBroadcastAttemptCount($db, $broadcastId);
+    if ($maxRecipients !== null) {
+        $remainingForBroadcast = $maxRecipients - $attempted;
+        if ($remainingForBroadcast <= 0) {
+            finalizeBroadcast($db, $broadcastId);
+            sendFinalReport($adminId, $broadcastId, 0, 0);
+            return false;
+        }
+    } else {
+        $remainingForBroadcast = null;
+    }
+
     while (true) {
-        $chunk = fetchUsersChunk($db, $broadcastId, $batchSize);
+        $chunkLimit = $batchSize;
+        if ($remaining !== null) {
+            $chunkLimit = min($chunkLimit, $remaining);
+        }
+        if ($remainingForBroadcast !== null) {
+            $chunkLimit = min($chunkLimit, $remainingForBroadcast);
+        }
+
+        $chunk = fetchUsersChunk($db, $broadcastId, $chunkLimit);
         if (!$chunk) {
             $completed = true;
             break;
@@ -99,13 +125,16 @@ function processBroadcast(int $broadcastId, int $adminId, string $text, ?int &$r
             saveAttempt($db, $broadcastId, (int)$u['id'], $attempts, $success, $err);
             if ($success) {
                 $sent++;
-                if ($remaining !== null) {
-                    $remaining--;
-                }
             } else {
                 $failed++;
             }
-            if ($remaining !== null && $remaining <= 0) {
+            if ($remaining !== null) {
+                $remaining--;
+            }
+            if ($remainingForBroadcast !== null) {
+                $remainingForBroadcast--;
+            }
+            if (($remaining !== null && $remaining <= 0) || ($remainingForBroadcast !== null && $remainingForBroadcast <= 0)) {
                 $limitReached = true;
                 break;
             }
@@ -122,7 +151,14 @@ function processBroadcast(int $broadcastId, int $adminId, string $text, ?int &$r
         usleep($delayMs * 1000);
     }
 
-    if ($completed) {
+    if (
+        $completed
+        || (
+            $maxRecipients !== null
+            && $remainingForBroadcast !== null
+            && $remainingForBroadcast <= 0
+        )
+    ) {
         finalizeBroadcast($db, $broadcastId);
         sendFinalReport($adminId, $broadcastId, $sentAll, $failedAll);
         return false;
@@ -148,6 +184,13 @@ function fetchUsersChunk(PDO $db, int $broadcastId, int $limit): array
     $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
     $stmt->execute();
     return $stmt->fetchAll();
+}
+
+function getBroadcastAttemptCount(PDO $db, int $broadcastId): int
+{
+    $stmt = $db->prepare('SELECT COUNT(*) FROM broadcast_attempts WHERE broadcast_id = :id');
+    $stmt->execute(['id' => $broadcastId]);
+    return (int)$stmt->fetchColumn();
 }
 
 function sendMessageWithRetry(int $chatId, string $text, int $msgDelayMs): array

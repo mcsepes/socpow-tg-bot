@@ -40,8 +40,9 @@ function processMessage(array $message): void
         return;
     }
 
-    if ($text === '/broadcast' && isAdmin($chatId)) {
-        ensurePendingBroadcast($chatId);
+    if (preg_match('/^\/broadcast(?:\s+(\d+))?$/', (string)$text, $m) && isAdmin($chatId)) {
+        $limit = isset($m[1]) ? (int)$m[1] : null;
+        ensurePendingBroadcast($chatId, $limit);
         sendMessage($chatId, 'Введите текст рассылки:');
         return;
     }
@@ -80,7 +81,7 @@ function registerUser(array $message): void
     ]);
 }
 
-function ensurePendingBroadcast(int $adminId): void
+function ensurePendingBroadcast(int $adminId, ?int $max): void
 {
     $db = getDb();
     $stmt = $db->prepare(
@@ -89,8 +90,11 @@ function ensurePendingBroadcast(int $adminId): void
     $stmt->execute(['admin_id' => $adminId]);
     $row = $stmt->fetch();
     if (!$row) {
-        $ins = $db->prepare('INSERT INTO broadcasts (admin_id, updated_at) VALUES (:admin_id, NOW())');
-        $ins->execute(['admin_id' => $adminId]);
+        $ins = $db->prepare('INSERT INTO broadcasts (admin_id, max_recipients, updated_at) VALUES (:admin_id, :max, NOW())');
+        $ins->execute(['admin_id' => $adminId, 'max' => $max]);
+    } elseif ($max !== null) {
+        $upd = $db->prepare('UPDATE broadcasts SET max_recipients = :max WHERE id = :id');
+        $upd->execute(['max' => $max, 'id' => $row['id']]);
     }
 }
 
