@@ -37,7 +37,7 @@ function runBroadcasts(?int $maxPerRun): void
         try {
             $limitHit = processBroadcast((int)$b['id'], (int)$b['admin_id'], $b['text'], $remaining);
         } catch (Throwable $e) {
-            $db->prepare("UPDATE broadcasts SET status = 'sending' WHERE id = :id")
+            $db->prepare("UPDATE broadcasts SET status = 'sending', updated_at = NOW() WHERE id = :id")
                 ->execute(['id' => $b['id']]);
             sendMessage((int)$b['admin_id'], 'Ошибка при обработке рассылки #' . $b['id'] . ': ' . $e->getMessage());
             continue;
@@ -52,7 +52,7 @@ function restoreStalledBroadcasts(PDO $db): void
 {
     $db->exec(
         "UPDATE broadcasts
-            SET status = 'sending'
+            SET status = 'sending', updated_at = NOW()
           WHERE status = 'processing'
             AND updated_at < DATE_SUB(NOW(), INTERVAL 10 MINUTE)"
     );
@@ -66,7 +66,7 @@ function fetchSendingBroadcasts(PDO $db): array
 
 function captureBroadcast(PDO $db, int $id): bool
 {
-    $u = $db->prepare("UPDATE broadcasts SET status = 'processing' WHERE id = :id AND status = 'sending'");
+    $u = $db->prepare("UPDATE broadcasts SET status = 'processing', updated_at = NOW() WHERE id = :id AND status = 'sending'");
     $u->execute(['id' => $id]);
     return $u->rowCount() > 0;
 }
@@ -128,7 +128,7 @@ function processBroadcast(int $broadcastId, int $adminId, string $text, ?int &$r
         return false;
     }
 
-    $db->prepare("UPDATE broadcasts SET status = 'sending' WHERE id = :id")
+    $db->prepare("UPDATE broadcasts SET status = 'sending', updated_at = NOW() WHERE id = :id")
         ->execute(['id' => $broadcastId]);
     sendMessage($adminId, "Достигнут лимит отправки. Рассылка будет продолжена позже. Отправлено в этом запуске: {$sentAll}.");
     return true;
@@ -178,8 +178,8 @@ function saveAttempt(PDO $db, int $broadcastId, int $userId, int $attempts, bool
 {
     $db->prepare(
         "INSERT INTO broadcast_attempts
-         (broadcast_id, user_id, attempts, status, last_error)
-         VALUES (:bid, :uid, :att, :st, :err)
+         (broadcast_id, user_id, attempts, status, last_error, updated_at)
+         VALUES (:bid, :uid, :att, :st, :err, NOW())
          ON DUPLICATE KEY UPDATE
             attempts   = VALUES(attempts),
             status     = VALUES(status),
@@ -207,7 +207,7 @@ function reportBatch(int $adminId, int $batchNum, int $sent, int $total, int $fa
 
 function finalizeBroadcast(PDO $db, int $broadcastId): void
 {
-    $db->prepare("UPDATE broadcasts SET status = 'completed' WHERE id = :id")
+    $db->prepare("UPDATE broadcasts SET status = 'completed', updated_at = NOW() WHERE id = :id")
         ->execute(['id' => $broadcastId]);
 }
 

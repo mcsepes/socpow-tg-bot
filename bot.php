@@ -56,7 +56,7 @@ function ensurePendingBroadcast(int $adminId): void
     $stmt->execute(['admin_id' => $adminId]);
     $row = $stmt->fetch();
     if (!$row) {
-        $ins = $db->prepare('INSERT INTO broadcasts (admin_id) VALUES (:admin_id)');
+        $ins = $db->prepare('INSERT INTO broadcasts (admin_id, updated_at) VALUES (:admin_id, NOW())');
         $ins->execute(['admin_id' => $adminId]);
     }
 }
@@ -83,7 +83,7 @@ function handleBroadcastText(int $adminId, ?string $text): bool
     $broadcastId = (int)$row['id'];
     $upd = $db->prepare(
         "UPDATE broadcasts
-         SET text = :text, status = 'sending'
+         SET text = :text, status = 'sending', updated_at = NOW()
          WHERE id = :id"
     );
     $upd->execute(['text' => $text, 'id' => $broadcastId]);

@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS `broadcasts` (
     `text` TEXT NULL,
     `status` ENUM('pending_text', 'sending', 'processing', 'completed') NOT NULL DEFAULT 'pending_text',
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    `updated_at` TIMESTAMP NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Создание таблицы попыток рассылки
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS `broadcast_attempts` (
     `status` ENUM('pending', 'sent', 'failed') NOT NULL DEFAULT 'pending',
     `last_error` TEXT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NOT NULL,
     FOREIGN KEY (`broadcast_id`) REFERENCES `broadcasts`(`id`) ON DELETE CASCADE,
     FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
     INDEX (`broadcast_id`),

@@ -15,7 +15,7 @@
 ## Требования
 
 * PHP ≥ 7.4 с расширениями `pdo_mysql` и `curl`
-* MySQL ≥ 5.7
+* MySQL ≥ 5.5
 * Доступ к публичному URL для webhook (HTTPS)
 
 ---
