@@ -29,6 +29,17 @@ function processMessage(array $message): void
         return;
     }
 
+    if (preg_match('~^/send\s+(\S+)~', (string)$text, $m) && isAdmin($chatId)) {
+        $targetId = findUserChatId($m[1]);
+        if ($targetId === null) {
+            sendMessage($chatId, 'Пользователь не найден.');
+        } else {
+            ensurePendingDirect($chatId, $targetId);
+            sendMessage($chatId, 'Введите текст сообщения:');
+        }
+        return;
+    }
+
     if ($text === '/broadcast' && isAdmin($chatId)) {
         ensurePendingBroadcast($chatId);
         sendMessage($chatId, 'Введите текст рассылки:');
@@ -38,6 +49,10 @@ function processMessage(array $message): void
     if ($text === '/subscribers' && isAdmin($chatId)) {
         $count = getSubscribersCount();
         sendMessage($chatId, 'Количество подписчиков: ' . $count);
+        return;
+    }
+
+    if (isAdmin($chatId) && handleDirectText($chatId, $text)) {
         return;
     }
 
@@ -109,6 +124,63 @@ function handleBroadcastText(int $adminId, ?string $text): bool
     return true;
 }
 
+function findUserChatId(string $ident): ?int
+{
+    $db = getDb();
+    $ident = ltrim($ident, '@');
+    $num   = ctype_digit($ident) ? (int)$ident : -1;
+    $stmt = $db->prepare(
+        'SELECT chat_id FROM users WHERE username = :u OR chat_id = :id OR user_id = :id LIMIT 1'
+    );
+    $stmt->execute(['u' => $ident, 'id' => $num]);
+    $row = $stmt->fetch();
+    return $row ? (int)$row['chat_id'] : null;
+}
+
+function ensurePendingDirect(int $adminId, int $chatId): void
+{
+    $db = getDb();
+    $db->prepare('DELETE FROM direct_messages WHERE admin_id = :aid AND status = "pending_text"')
+        ->execute(['aid' => $adminId]);
+    $db->prepare('INSERT INTO direct_messages (admin_id, chat_id, updated_at) VALUES (:aid, :cid, NOW())')
+        ->execute(['aid' => $adminId, 'cid' => $chatId]);
+}
+
+function handleDirectText(int $adminId, ?string $text): bool
+{
+    $db = getDb();
+    $stmt = $db->prepare(
+        "SELECT id, chat_id FROM direct_messages
+         WHERE admin_id = :aid AND status = 'pending_text'
+         ORDER BY id DESC LIMIT 1"
+    );
+    $stmt->execute(['aid' => $adminId]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        return false;
+    }
+
+    if ($text === null || $text === '') {
+        sendMessage($adminId, 'Пожалуйста, отправьте текстовое сообщение.');
+        return true;
+    }
+
+    $dmId  = (int)$row['id'];
+    $cid   = (int)$row['chat_id'];
+    $res   = sendMessage($cid, $text);
+    $db->prepare(
+        "UPDATE direct_messages
+         SET text = :text, status = 'sent', updated_at = NOW()
+         WHERE id = :id"
+    )->execute(['text' => $text, 'id' => $dmId]);
+
+    if ($res['ok']) {
+        sendMessage($adminId, 'Сообщение отправлено.');
+    } else {
+        sendMessage($adminId, 'Ошибка отправки: ' . $res['description']);
+    }
+    return true;
+}
 
 function getSubscribersCount(): int
 {

@@ -34,3 +34,14 @@ CREATE TABLE IF NOT EXISTS `broadcast_attempts` (
     INDEX (`user_id`),
     UNIQUE KEY `broadcast_user` (`broadcast_id`, `user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Создание таблицы персональных сообщений
+CREATE TABLE IF NOT EXISTS `direct_messages` (
+    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `admin_id` BIGINT NOT NULL,
+    `chat_id` BIGINT NOT NULL,
+    `text` TEXT NULL,
+    `status` ENUM('pending_text', 'sent') NOT NULL DEFAULT 'pending_text',
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
