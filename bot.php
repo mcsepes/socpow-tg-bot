@@ -24,7 +24,7 @@ function processMessage(array $message): void
     $text   = isset($message['text']) ? trim($message['text']) : null;
 
     if ($text === '/start') {
-        registerUser($chatId);
+        registerUser($message);
         sendMessage($chatId, $GLOBALS['config']['WELCOME_MESSAGE']);
         return;
     }
@@ -40,11 +40,23 @@ function processMessage(array $message): void
     }
 }
 
-function registerUser(int $chatId): void
+function registerUser(array $message): void
 {
+    $chatId  = (int)$message['chat']['id'];
+    $userId  = isset($message['from']['id']) ? (int)$message['from']['id'] : $chatId;
+    $username = $message['from']['username'] ?? null;
+
     $db = getDb();
-    $stmt = $db->prepare('INSERT IGNORE INTO users (chat_id) VALUES (:chat_id)');
-    $stmt->execute(['chat_id' => $chatId]);
+    $stmt = $db->prepare(
+        'INSERT INTO users (chat_id, user_id, username)
+         VALUES (:chat_id, :user_id, :username)
+         ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), username = VALUES(username)'
+    );
+    $stmt->execute([
+        'chat_id'  => $chatId,
+        'user_id'  => $userId,
+        'username' => $username,
+    ]);
 }
 
 function ensurePendingBroadcast(int $adminId): void

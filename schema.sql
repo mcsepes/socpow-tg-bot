@@ -2,7 +2,10 @@
 CREATE TABLE IF NOT EXISTS `users` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     `chat_id` BIGINT NOT NULL UNIQUE,
-    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    `user_id` BIGINT NOT NULL,
+    `username` VARCHAR(255) DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY `idx_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Создание таблицы рассылок
