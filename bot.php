@@ -23,7 +23,7 @@ function processMessage(array $message): void
     $chatId = (int)$message['chat']['id'];
     $text   = isset($message['text']) ? trim($message['text']) : null;
 
-    if ($text === '/start') {
+    if ($text !== null && preg_match('/^\/start(?:\s|$)/', $text)) {
         registerUser($message);
         sendMessage($chatId, $GLOBALS['config']['WELCOME_MESSAGE']);
         return;
