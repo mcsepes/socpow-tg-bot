@@ -1,0 +1,11 @@
+name: main
+on: [push]
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: php-actions/phpstan@v3
+      with:
+        path: /
