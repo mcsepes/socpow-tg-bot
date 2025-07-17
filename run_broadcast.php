@@ -86,9 +86,12 @@ function processBroadcast(
     $delayMs    = $limit['delay_ms'];
     $msgDelayMs = $limit['msg_delay_ms'] ?? 40;
 
-    $batchNum     = 0;
-    $sentAll      = 0;
-    $failedAll    = 0;
+    $startTime = time();
+    $stats     = getBroadcastStats($db, $broadcastId);
+    $batchNum  = 0;
+    $sentAll   = $stats['sent'];
+    $failedAll = $stats['failed'];
+    $totalRecipients = getTotalRecipients($db, $maxRecipients);
     $limitReached = false;
     $completed    = false;
 
@@ -97,7 +100,14 @@ function processBroadcast(
         $remainingForBroadcast = $maxRecipients - $attempted;
         if ($remainingForBroadcast <= 0) {
             finalizeBroadcast($db, $broadcastId);
-            sendFinalReport($adminId, $broadcastId, 0, 0);
+            sendFinalReport(
+                $adminId,
+                $broadcastId,
+                $sentAll,
+                $failedAll,
+                $totalRecipients,
+                $startTime
+            );
             return false;
         }
     } else {
@@ -143,7 +153,19 @@ function processBroadcast(
         $sentAll   += $sent;
         $failedAll += $failed;
         updateBroadcastTimestamp($db, $broadcastId);
-        reportBatch($adminId, $batchNum, $sent, count($chunk), $failed);
+        reportBatch(
+            $adminId,
+            $broadcastId,
+            $batchNum,
+            $sent,
+            count($chunk),
+            $failed,
+            $sentAll,
+            $failedAll,
+            $totalRecipients,
+            $startTime,
+            $delayMs
+        );
 
         if ($limitReached) {
             break;
@@ -160,13 +182,33 @@ function processBroadcast(
         )
     ) {
         finalizeBroadcast($db, $broadcastId);
-        sendFinalReport($adminId, $broadcastId, $sentAll, $failedAll);
+        sendFinalReport(
+            $adminId,
+            $broadcastId,
+            $sentAll,
+            $failedAll,
+            $totalRecipients,
+            $startTime
+        );
         return false;
     }
 
     $db->prepare("UPDATE broadcasts SET status = 'sending', updated_at = NOW() WHERE id = :id")
         ->execute(['id' => $broadcastId]);
-    sendMessage($adminId, "Достигнут лимит отправки. Рассылка будет продолжена позже. Отправлено в этом запуске: {$sentAll}.");
+    $header = buildBroadcastHeader(
+        $broadcastId,
+        $totalRecipients,
+        $sentAll,
+        $failedAll,
+        time() - $startTime,
+        false
+    );
+    sendMessage(
+        $adminId,
+        $header . PHP_EOL
+        . "Достигнут лимит отправки за один запуск. Отправлено в этом запуске: {$sentAll}." . PHP_EOL
+        . "Рассылка будет продолжена позже."
+    );
     return true;
 }
 
@@ -191,6 +233,47 @@ function getBroadcastAttemptCount(PDO $db, int $broadcastId): int
     $stmt = $db->prepare('SELECT COUNT(*) FROM broadcast_attempts WHERE broadcast_id = :id');
     $stmt->execute(['id' => $broadcastId]);
     return (int)$stmt->fetchColumn();
+}
+
+function getBroadcastStats(PDO $db, int $broadcastId): array
+{
+    $stmt = $db->prepare(
+        "SELECT SUM(status = 'sent') AS sent, SUM(status = 'failed') AS failed FROM broadcast_attempts WHERE broadcast_id = :id"
+    );
+    $stmt->execute(['id' => $broadcastId]);
+    $row = $stmt->fetch();
+    return [
+        'sent'   => $row ? (int)$row['sent'] : 0,
+        'failed' => $row ? (int)$row['failed'] : 0,
+    ];
+}
+
+function getSubscribersCount(): int
+{
+    $db = getDb();
+    $stmt = $db->query('SELECT COUNT(*) FROM users');
+    return (int)$stmt->fetchColumn();
+}
+
+function getTotalRecipients(PDO $db, ?int $maxRecipients): int
+{
+    $total = getSubscribersCount();
+    if ($maxRecipients !== null && $maxRecipients < $total) {
+        return $maxRecipients;
+    }
+    return $total;
+}
+
+function buildBroadcastHeader(
+    int $broadcastId,
+    int $totalRecipients,
+    int $sent,
+    int $failed,
+    int $duration,
+    bool $final
+): string {
+    $timeText = $final ? "Время выполнения: {$duration} сек." : "Длится {$duration} сек.";
+    return "[Рассылка #{$broadcastId}] [Всего {$totalRecipients}, отправлено {$sent}, не удалось {$failed}] [{$timeText}]";
 }
 
 function sendMessageWithRetry(int $chatId, string $text, int $msgDelayMs): array
@@ -243,9 +326,33 @@ function updateBroadcastTimestamp(PDO $db, int $broadcastId): void
         ->execute(['id' => $broadcastId]);
 }
 
-function reportBatch(int $adminId, int $batchNum, int $sent, int $total, int $failed): void
-{
-    sendMessage($adminId, "Batch #{$batchNum}: отправлено {$sent} из {$total}, {$failed} — не удалось.");
+function reportBatch(
+    int $adminId,
+    int $broadcastId,
+    int $batchNum,
+    int $sent,
+    int $total,
+    int $failed,
+    int $sentAll,
+    int $failedAll,
+    int $totalRecipients,
+    int $startTime,
+    int $delayMs
+): void {
+    $header = buildBroadcastHeader(
+        $broadcastId,
+        $totalRecipients,
+        $sentAll,
+        $failedAll,
+        time() - $startTime,
+        false
+    );
+    sendMessage(
+        $adminId,
+        $header . PHP_EOL
+        . "Batch #{$batchNum}: отправлено {$sent} из {$total}, {$failed} — не удалось." . PHP_EOL
+        . "Жду {$delayMs} мс."
+    );
 }
 
 function finalizeBroadcast(PDO $db, int $broadcastId): void
@@ -254,7 +361,30 @@ function finalizeBroadcast(PDO $db, int $broadcastId): void
         ->execute(['id' => $broadcastId]);
 }
 
-function sendFinalReport(int $adminId, int $broadcastId, int $sentAll, int $failedAll): void
-{
-    sendMessage($adminId, "Рассылка #{$broadcastId} завершена. Всего отправлено: {$sentAll}, не удалось: {$failedAll}.");
+function sendFinalReport(
+    int $adminId,
+    int $broadcastId,
+    int $sentAll,
+    int $failedAll,
+    int $totalRecipients,
+    int $startTime
+): void {
+    $db = getDb();
+    $stats = getBroadcastStats($db, $broadcastId);
+    $totalSent = $row['sent'] ?? $sentAll;
+    $totalFailed = $row['failed'] ?? $failedAll;
+
+    $header = buildBroadcastHeader(
+        $broadcastId,
+        $totalRecipients,
+        $totalSent,
+        $totalFailed,
+        time() - $startTime,
+        true
+    );
+
+    sendMessage(
+        $adminId,
+        $header . PHP_EOL . 'Рассылка завершена.'
+    );
 }
