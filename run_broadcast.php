@@ -86,7 +86,10 @@ function processBroadcast(
     $delayMs    = $limit['delay_ms'];
     $msgDelayMs = $limit['msg_delay_ms'] ?? 40;
 
-    $startTime = time();
+    $startTime = getBroadcastStartTime($db, $broadcastId);
+    if ($startTime === null) {
+        $startTime = time();
+    }
     $stats     = getBroadcastStats($db, $broadcastId);
     $batchNum  = 0;
     $sentAll   = $stats['sent'];
@@ -248,6 +251,19 @@ function getBroadcastStats(PDO $db, int $broadcastId): array
     ];
 }
 
+function getBroadcastStartTime(PDO $db, int $broadcastId): ?int
+{
+    $stmt = $db->prepare(
+        'SELECT MIN(created_at) AS started FROM broadcast_attempts WHERE broadcast_id = :id'
+    );
+    $stmt->execute(['id' => $broadcastId]);
+    $row = $stmt->fetch();
+    if ($row && $row['started'] !== null) {
+        return (int)strtotime($row['started']);
+    }
+    return null;
+}
+
 function getSubscribersCount(): int
 {
     $db = getDb();
@@ -371,8 +387,8 @@ function sendFinalReport(
 ): void {
     $db = getDb();
     $stats = getBroadcastStats($db, $broadcastId);
-    $totalSent = $row['sent'] ?? $sentAll;
-    $totalFailed = $row['failed'] ?? $failedAll;
+    $totalSent = $stats['sent'] ?? $sentAll;
+    $totalFailed = $stats['failed'] ?? $failedAll;
 
     $header = buildBroadcastHeader(
         $broadcastId,
